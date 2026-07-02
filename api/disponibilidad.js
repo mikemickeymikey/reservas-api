@@ -16,6 +16,8 @@ export default async function handler(req, res) {
     }
 
     try {
+        console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
+        console.log('SERVICE_KEY exists:', !!process.env.SUPABASE_SERVICE_KEY);
         // Turnos ocupados para ese barco y fecha
         const { data: reservas, error } = await supabase
             .from('reservas')

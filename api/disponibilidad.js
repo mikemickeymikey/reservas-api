@@ -44,9 +44,18 @@ export default async function handler(req, res) {
         const turnos = ['completo', 'manana', 'tarde', 'sunset'];
         const resultado = turnos.map(turno => {
             const precioData = precios.find(p => p.turno === turno);
-            const ocupado = todoOcupado
-                || turnosOcupados.includes(turno)
-                || (turno === 'completo' && (turnosOcupados.includes('manana') || turnosOcupados.includes('tarde')));
+
+            let ocupado;
+            if (turno === 'sunset') {
+                // Sunset (19:00-21:00) no se solapa con ningún otro turno
+                ocupado = turnosOcupados.includes('sunset');
+            } else if (turno === 'completo') {
+                ocupado = todoOcupado
+                    || turnosOcupados.includes('manana')
+                    || turnosOcupados.includes('tarde');
+            } else {
+                ocupado = todoOcupado || turnosOcupados.includes(turno);
+            }
 
             return {
                 turno,

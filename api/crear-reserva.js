@@ -43,11 +43,17 @@ export default async function handler(req, res) {
         const hayCompleto = turnosOcupados.includes('completo');
         const hayMediosDia = turnosOcupados.includes('manana') || turnosOcupados.includes('tarde');
 
-        if (
-            hayCompleto ||
-            turnosOcupados.includes(turno) ||
-            (turno === 'completo' && hayMediosDia)
-        ) {
+        let turnoOcupado;
+        if (turno === 'sunset') {
+            // Sunset (19:00-21:00) no se solapa con ningún otro turno
+            turnoOcupado = turnosOcupados.includes('sunset');
+        } else if (turno === 'completo') {
+            turnoOcupado = hayCompleto || hayMediosDia;
+        } else {
+            turnoOcupado = hayCompleto || turnosOcupados.includes(turno);
+        }
+
+        if (turnoOcupado) {
             return res.status(409).json({ error: 'Este turno ya no está disponible' });
         }
 

@@ -16,23 +16,22 @@ export default async function handler(req, res) {
     }
 
     try {
-        console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
-        console.log('SERVICE_KEY exists:', !!process.env.SUPABASE_SERVICE_KEY);
-        // Turnos ocupados para ese barco y fecha
+        const ahora = new Date().toISOString();
+
+        // Turnos ocupados: reservas confirmadas O pendientes que aún no han caducado
         const { data: reservas, error } = await supabase
             .from('reservas')
             .select('turno')
             .eq('barco_id', barco_id)
-            .eq('fecha', fecha);
+            .eq('fecha', fecha)
+            .or(`confirmada.eq.true,expira_en.gt.${ahora}`);
 
         if (error) throw error;
 
         const turnosOcupados = reservas.map(r => r.turno);
-
-        // Si hay completo, todo está ocupado
         const todoOcupado = turnosOcupados.includes('completo');
 
-        // Precio para esa fecha
+        // Precios para esa fecha
         const { data: precios, error: errorPrecios } = await supabase
             .from('precios')
             .select('turno, precio')
@@ -45,9 +44,9 @@ export default async function handler(req, res) {
         const turnos = ['completo', 'manana', 'tarde', 'sunset'];
         const resultado = turnos.map(turno => {
             const precioData = precios.find(p => p.turno === turno);
-            const ocupado = todoOcupado || turnosOcupados.includes(turno) ||
-                // Si hay manana y tarde, completo no está disponible
-                (turno === 'completo' && (turnosOcupados.includes('manana') || turnosOcupados.includes('tarde')));
+            const ocupado = todoOcupado
+                || turnosOcupados.includes(turno)
+                || (turno === 'completo' && (turnosOcupados.includes('manana') || turnosOcupados.includes('tarde')));
 
             return {
                 turno,

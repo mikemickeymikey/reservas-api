@@ -75,14 +75,21 @@ export default async function handler(req, res) {
 
         if (descuento_codigo) {
             const hoy = new Date().toISOString().split('T')[0];
-            const { data: descuento } = await supabase
+            const { data: descuentos, error: errorDescuento } = await supabase
                 .from('descuentos')
-                .select('porcentaje')
-                .ilike('codigo', descuento_codigo)
-                .eq('activo', true)
-                .or(`fecha_inicio.is.null,fecha_inicio.lte.${hoy}`)
-                .or(`fecha_fin.is.null,fecha_fin.gte.${hoy}`)
-                .single();
+                .select('codigo, porcentaje, fecha_inicio, fecha_fin')
+                .eq('activo', true);
+
+            if (errorDescuento) throw errorDescuento;
+
+            // Comparación exacta en JS (case-insensitive) en vez de ilike, que
+            // interpretaría "%" o "_" en el código recibido como comodines SQL
+            // y podría hacer coincidir cualquier descuento activo sin conocerlo.
+            const descuento = descuentos.find(d =>
+                d.codigo.toLowerCase() === descuento_codigo.toLowerCase()
+                && (!d.fecha_inicio || d.fecha_inicio <= hoy)
+                && (!d.fecha_fin || d.fecha_fin >= hoy)
+            );
 
             if (descuento) {
                 precioFinal = precioData.precio * (1 - descuento.porcentaje / 100);

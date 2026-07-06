@@ -18,7 +18,8 @@ export default async function handler(req, res) {
     const {
         barco_id, fecha, turno,
         nombre, email, telefono, dni,
-        direccion, ciudad, codigo_postal, pais
+        direccion, ciudad, codigo_postal, pais,
+        descuento_codigo
     } = req.body;
 
     // Validación de campos obligatorios
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
     try {
         const ahora = new Date().toISOString();
 
-        // Comprobar disponibilidad (misma lógica que /api/disponibilidad)
+        // Comprobar disponibilidad
         const { data: reservasExistentes, error: errorReservas } = await supabase
             .from('reservas')
             .select('turno')
@@ -41,23 +42,21 @@ export default async function handler(req, res) {
 
         const turnosOcupados = reservasExistentes.map(r => r.turno);
         const hayCompleto = turnosOcupados.includes('completo');
-        const hayMediosDia = turnosOcupados.includes('manana') || turnosOcupados.includes('tarde');
+        const hayManana = turnosOcupados.includes('manana');
+        const hayTarde = turnosOcupados.includes('tarde');
+        const haySunset = turnosOcupados.includes('sunset');
 
-        let turnoOcupado;
-        if (turno === 'sunset') {
-            // Sunset (19:00-21:00) no se solapa con ningún otro turno
-            turnoOcupado = turnosOcupados.includes('sunset');
-        } else if (turno === 'completo') {
-            turnoOcupado = hayCompleto || hayMediosDia;
-        } else {
-            turnoOcupado = hayCompleto || turnosOcupados.includes(turno);
-        }
+        const conflicto =
+            (turno === 'completo' && (hayCompleto || hayManana || hayTarde)) ||
+            (turno === 'manana' && (hayCompleto || hayManana)) ||
+            (turno === 'tarde' && (hayCompleto || hayTarde)) ||
+            (turno === 'sunset' && haySunset);
 
-        if (turnoOcupado) {
+        if (conflicto) {
             return res.status(409).json({ error: 'Este turno ya no está disponible' });
         }
 
-        // Obtener precio
+        // Obtener precio base
         const { data: precioData, error: errorPrecio } = await supabase
             .from('precios')
             .select('precio')
@@ -69,6 +68,27 @@ export default async function handler(req, res) {
 
         if (errorPrecio || !precioData) {
             return res.status(400).json({ error: 'No hay precio disponible para esa fecha y turno' });
+        }
+
+        // Aplicar descuento si hay código
+        let precioFinal = precioData.precio;
+
+        if (descuento_codigo) {
+            const hoy = new Date().toISOString().split('T')[0];
+            const { data: descuento } = await supabase
+                .from('descuentos')
+                .select('porcentaje')
+                .ilike('codigo', descuento_codigo)
+                .eq('activo', true)
+                .or(`fecha_inicio.is.null,fecha_inicio.lte.${hoy}`)
+                .or(`fecha_fin.is.null,fecha_fin.gte.${hoy}`)
+                .single();
+
+            if (descuento) {
+                precioFinal = precioData.precio * (1 - descuento.porcentaje / 100);
+                precioFinal = Math.round(precioFinal * 100) / 100;
+            }
+            // Si el código no es válido simplemente se ignora y se cobra el precio completo
         }
 
         // Generar order_id único (Redsys: máx 12 caracteres alfanuméricos)
@@ -92,7 +112,7 @@ export default async function handler(req, res) {
                 ciudad,
                 codigo_postal,
                 pais,
-                precio_pagado: precioData.precio,
+                precio_pagado: precioFinal,
                 redsys_order_id: orderId,
                 confirmada: false,
                 expira_en: expiraEn
@@ -105,7 +125,7 @@ export default async function handler(req, res) {
             DS_MERCHANT_MERCHANTCODE: process.env.REDSYS_FUC,
             DS_MERCHANT_TERMINAL: process.env.REDSYS_TERMINAL,
             DS_MERCHANT_ORDER: orderId,
-            DS_MERCHANT_AMOUNT: String(Math.round(precioData.precio * 100)),
+            DS_MERCHANT_AMOUNT: String(Math.round(precioFinal * 100)), // en céntimos
             DS_MERCHANT_CURRENCY: '978', // EUR
             DS_MERCHANT_TRANSACTIONTYPE: '0',
             DS_MERCHANT_URLOK: `${process.env.URL_BASE}/reserva-ok.html`,
